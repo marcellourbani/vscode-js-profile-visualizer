@@ -23,11 +23,11 @@ type Link = CommandLink | UriLink;
 const exists = async (uristr: string) => {
   try {
     const uri = parseLink(uristr);
-    if (uri.type === LinkType.Command) return true;
+    if (uri.type === LinkType.Command) return { uri: uristr, exists: true };
     await vscode.workspace.fs.stat(uri.uri);
-    return true;
+    return { uri: uristr, exists: true };
   } catch {
-    return false;
+    return { uri: uristr, exists: false };
   }
 };
 
@@ -80,12 +80,12 @@ const showPositionInFile = async (
 ): Promise<boolean> => {
   const diskPaths = getCandidateDiskPaths(rootPath, location.source);
   const foundPaths = await Promise.all(diskPaths.map(exists));
-  const existingIndex = foundPaths.findIndex(ok => ok);
-  if (existingIndex === -1) {
+  const existing = foundPaths.find(ok => ok.exists);
+  if (!existing?.exists) {
     return false;
   }
 
-  const resolvedLink = parseLink(diskPaths[existingIndex]);
+  const resolvedLink = parseLink(existing.uri);
   if (resolvedLink.type === LinkType.Command) {
     await runCommand(resolvedLink); // delegate finding the position to the command provider
     return true;
@@ -112,7 +112,7 @@ const showPositionInUrl = async (
   }
 
   const path = resolve(
-    vscode.workspace.workspaceFolders?.[0].uri.fsPath ?? tmpdir(),
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? tmpdir(),
     url.pathname.slice(1) || 'index.js',
   );
 
@@ -127,15 +127,15 @@ const showPositionInUrl = async (
  * @param url
  * @returns
  */
-const parseLink = (link: string | undefined): Link => {
+const parseLink = (link: string): Link => {
   const matchCommand = link?.match(/^command:([\w\.]+)(?:\?(.*))?/);
   if (matchCommand) {
-    const [command, rawArgs] = matchCommand.slice(1);
+    const [command = '', rawArgs] = matchCommand.slice(1);
     const parsed = rawArgs ? JSON.parse(decodeURIComponent(rawArgs)) : [];
     const args = Array.isArray(parsed) ? parsed : [parsed];
     return { type: LinkType.Command, command, args };
   }
-  if (link?.match(/\w\w+:/))
+  if (link?.match(/^\w\w+:/))
     return { type: LinkType.URI, uri: vscode.Uri.parse(link || ''), isFile: false };
   return { type: LinkType.URI, uri: vscode.Uri.file(link || ''), isFile: true };
 };
